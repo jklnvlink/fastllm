@@ -57,6 +57,7 @@
 #include "devices/multicuda/fastllm-multicuda.cuh"
 #ifndef USE_ROCM
 #include "../cuda/gguf_mmq/fastllm-gguf-moe-glm5.h"
+#include "devices/cuda/fastllm-cuda-v41-gguf.h"
 #include "devices/cuda/fastllm-moe-prefetch.h"
 #endif
 #endif
@@ -349,7 +350,7 @@ namespace fastllm {
         bool pinnedWeight;
     };
 
-    // 普通 GGUF 和 GLM GGUF/紧凑 NVFP4 prefill 默认使用实测反馈。
+    // 普通/GLM/V4.1 GGUF 和 GLM 紧凑 NVFP4 prefill 默认使用实测反馈。
     // 以下开关为其他格式启用相同策略。
     //   FT_MOE_ASSIST_BALANCE=1  按各卡实测的每专家耗时分配 GPU 专家，而不是
     //                            固定按 route 数均分。
@@ -10006,6 +10007,9 @@ namespace fastllm {
 #ifndef USE_ROCM
                             if (nativeGlm) groupedBytes = fastllm_gguf_mmq::Glm5GroupedWorkspaceBytes(
                                 view.gateType, view.downType, bs, view.hidden, view.inter, m, topk);
+                            else if (deepSeekV4Mode && activationQuantBlock == 32)
+                                groupedBytes = FastllmCudaV41GGUFGroupedWorkspaceBytes(
+                                    view.gateType, view.downType, bs, view.hidden, view.inter, m, topk);
                             else
 #endif
                             groupedBytes = FastllmCudaMoeGGUFGroupedWorkspaceBytes(view.gateType,
@@ -10030,7 +10034,10 @@ namespace fastllm {
             const auto hybridMath = !deepSeekV4Mode ? HybridMoeMath::Standard :
                 activationQuantBlock == 32 ? HybridMoeMath::DeepSeekV41 : HybridMoeMath::Glm5;
             const bool measuredNativePrefill = HybridMoeMeasuredNativePrefill(weights[2], weights[3], hybridMath);
-            const bool measuredPrefill = measuredNativePrefill || (weights[2] && weights[3] &&
+            const bool measuredV41GGUF = hybridMath == HybridMoeMath::DeepSeekV41 &&
+                weights[2] && weights[3] && weights[2]->dataType == DATA_GGUF_FORMAT &&
+                weights[3]->dataType == DATA_GGUF_FORMAT;
+            const bool measuredPrefill = measuredNativePrefill || measuredV41GGUF || (weights[2] && weights[3] &&
                 (!deepSeekV4Mode || activationQuantBlock == 128) &&
                 weights[2]->dataType == DATA_GGUF_FORMAT);
             const bool autoExpertLimit = assistConfig.autoExpertLimit || measuredPrefill;
@@ -10045,7 +10052,9 @@ namespace fastllm {
                     weights[3] ? int(weights[3]->dataType) : -1,
                     weights[2] ? weights[2]->ggmlType : -1,
                     weights[3] ? weights[3]->ggmlType : -1,
-                    measuredNativePrefill ? bs : 0});
+                    // V4.1's 128-row SWA tail must not train the full-chunk
+                    // cost model, or vice versa.
+                    (measuredNativePrefill || measuredV41GGUF) ? bs : 0});
             }
             // Respect an explicit FT_EXPERT_LIMIT override and skip the dynamic
             // CPU/GPU expert split benchmark in that case.

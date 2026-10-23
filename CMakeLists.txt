@@ -1385,6 +1385,9 @@ if (UNIT_TEST)
             add_executable(deepseekV41GgufIndexedRegression test/ops/deepseekV41GgufIndexedRegression.cpp)
             target_link_libraries(deepseekV41GgufIndexedRegression PRIVATE fastllm)
             target_include_directories(deepseekV41GgufIndexedRegression PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+            fastllm_add_checked_test(deepseekV41GgufHostPrefill deepseekV41GgufIndexedRegression
+                "PASS: V4.1 host grouped prefill" 300 --host-prefill)
+            set_tests_properties(deepseekV41GgufHostPrefill PROPERTIES LABELS cuda)
             fastllm_add_checked_test(deepseekV41GgufHybrid deepseekV41GgufIndexedRegression
                 "PASS: V4.1 hybrid GGUF" 300 --hybrid)
             set_tests_properties(deepseekV41GgufHybrid PROPERTIES LABELS cuda)
@@ -1578,6 +1581,12 @@ if (UNIT_TEST)
         add_test(NAME deepseek_v41_hybrid_attention COMMAND deepseek_v41_hybrid_attention_test)
         set_tests_properties(deepseek_v41_hybrid_attention PROPERTIES
                              LABELS cuda TIMEOUT 120 SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
+        add_executable(deepseek_v41_prefill_test test/basic/test_deepseek_v41_prefill.cpp)
+        target_include_directories(deepseek_v41_prefill_test PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+        target_link_libraries(deepseek_v41_prefill_test PRIVATE fastllm)
+        add_test(NAME deepseek_v41_prefill COMMAND deepseek_v41_prefill_test)
+        set_tests_properties(deepseek_v41_prefill PROPERTIES
+                             LABELS cuda TIMEOUT 300 SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
         add_executable(qwen35_mtp_tp_test test/basic/test_qwen35_mtp_tp.cpp)
         target_link_libraries(qwen35_mtp_tp_test PRIVATE fastllm)
         add_test(NAME qwen35_mtp_tp COMMAND qwen35_mtp_tp_test)
